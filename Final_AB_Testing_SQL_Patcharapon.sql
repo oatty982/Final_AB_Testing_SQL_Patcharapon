@@ -172,6 +172,28 @@ FROM
 ) item_test_2
 GROUP BY test_assignment;
 
+3. SubQuery
+
+SELECT 
+  f.item_id,
+  f.test_assignment,
+  f.test_number,
+  MAX(CASE WHEN orders.created_at > f.test_start_date AND
+  DATE_PART('day', orders.created_at - f.test_start_date) <= 30 
+  THEN 1 ELSE 0 END) AS order_binary_30d
+FROM 
+  dsv1069.final_assignments AS f
+LEFT JOIN 
+  dsv1069.orders AS orders
+ON 
+  f.item_id = orders.item_id
+WHERE 
+  test_number = 'item_test_2'
+GROUP BY
+  f.item_id,
+  f.test_assignment,
+  f.test_number
+
 
 -- 4. Compute View Item Metrics
 
@@ -206,6 +228,97 @@ FROM
     f.test_number
 ) item_test_2
 GROUP BY test_assignment;
+
+SELECT
+  test_assignment,
+  COUNT(DISTINCT item_id) AS item,
+  SUM(view_binary_30d) AS view_binary_30d,
+  CAST(100*SUM(view_binary_30d)/COUNT(item_id) AS FLOAT) AS viewed_percent,
+  SUM(views) AS views,
+  SUM(views)/COUNT(item_id) AS average_views_per_item
+FROM
+(
+  SELECT 
+    f.item_id,
+    f.test_assignment,
+    f.test_number,
+    MAX(CASE WHEN views.event_time > f.test_start_date AND
+    DATE_PART('day', views.event_time - f.test_start_date) <= 30 
+    THEN 1 ELSE 0 END) AS view_binary_30d,
+    COUNT(views.event_id) AS views
+  FROM 
+    dsv1069.final_assignments AS f
+  LEFT OUTER JOIN 
+    (
+    SELECT 
+      event_time,
+      event_id,
+      CAST(parameter_value AS INT) AS item_id
+    FROM 
+      dsv1069.events 
+    WHERE 
+      event_name = 'view_item'
+    AND 
+      parameter_name = 'item_id'
+    ) views
+  ON 
+    f.item_id = views.item_id
+  WHERE 
+    test_number = 'item_test_2'
+  GROUP BY
+    f.item_id,
+    f.test_assignment,
+    f.test_number
+) item_test_2
+GROUP BY test_assignment;
+
+
+-- another one
+
+SELECT
+test_assignment,
+COUNT(item_id) AS items,
+SUM(view_binary_30d) AS viewed_items,
+CAST(100*SUM(view_binary_30d)/COUNT(item_id) AS FLOAT) AS viewed_percent,
+SUM(views) AS views,
+SUM(views)/COUNT(item_id) AS average_views_per_item
+FROM 
+(
+ SELECT 
+   fa.test_assignment,
+   fa.item_id, 
+   MAX(CASE WHEN views.event_time > fa.test_start_date THEN 1 ELSE 0 END)  AS view_binary_30d,
+   COUNT(views.event_id) AS views
+  FROM 
+    dsv1069.final_assignments fa
+    
+  LEFT OUTER JOIN 
+    (
+    SELECT 
+      event_time,
+      event_id,
+      CAST(parameter_value AS INT) AS item_id
+    FROM 
+      dsv1069.events 
+    WHERE 
+      event_name = 'view_item'
+    AND 
+      parameter_name = 'item_id'
+    ) views
+  ON 
+    fa.item_id = views.item_id
+  AND 
+    views.event_time >= fa.test_start_date
+  AND 
+    DATE_PART('day', views.event_time - fa.test_start_date ) <= 30
+  WHERE 
+    fa.test_number= 'item_test_2'
+  GROUP BY
+    fa.test_assignment,
+    fa.item_id
+) item_level
+GROUP BY 
+ test_assignment
 
 
 -- 5. Compute lift and p-value
